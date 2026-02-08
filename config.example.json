@@ -1,0 +1,5 @@
+{
+  "authToken": "eyJ... your auth token ...",
+  "contextToken": "eyJ... your context token ...",
+  "transactionId": "tenant-uuid-user-uuid"
+}

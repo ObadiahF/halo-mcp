@@ -1,0 +1,7 @@
+services:
+  halo-mcp:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.json:/app/HaloMCP/config.json:ro
