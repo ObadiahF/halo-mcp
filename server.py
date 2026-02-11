@@ -245,6 +245,44 @@ def inbox_posts(forum_id: str, page: int = 1, page_size: int = 20) -> dict:
         _handle_error(e)
 
 
+@mcp.tool(
+    description=(
+        "Send a message to a teacher in an inbox thread. "
+        "Requires a class reference (course code, name, or slug) and the forum ID "
+        "of the inbox thread — get the forum ID from inbox() first. "
+        "Content should be plain text; it will be wrapped in HTML automatically."
+    ),
+    tags={"inbox"},
+)
+def message_teacher(
+    class_ref: str,
+    forum_id: str,
+    content: str,
+    is_draft: bool = False,
+) -> dict:
+    """Send a message in an inbox thread. Get forum_id from inbox() first."""
+    slug = class_cache.resolve_slug(class_ref)
+    class_id = class_cache.resolve_id(class_ref)
+
+    html_content = content if content.strip().startswith("<") else f"<p>{content}</p>"
+
+    try:
+        return (
+            HaloRequest("message_teacher")
+            .class_slug(slug)
+            .course_class(class_id)
+            .form_data({
+                "content": html_content,
+                "forumId": forum_id,
+                "isDraft": str(is_draft).lower(),
+                "extractLink": "true",
+            })
+            .execute_form_post("/api/v1/orchestrate/forum/post/send")
+        )
+    except Exception as e:
+        _handle_error(e)
+
+
 # ==================== Notification Tools ====================
 
 
