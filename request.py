@@ -11,6 +11,7 @@ from .config import get_config
 from .cleaners import clean_response
 
 GRAPHQL_ENDPOINT = "https://gateway.halo.gcu.edu/"
+ORCHESTRATION_ENDPOINT = "https://orchestration.halo.gcu.edu"
 
 
 class HaloAPIError(Exception):
@@ -44,6 +45,7 @@ class HaloRequest:
         self._variables: dict[str, Any] = {}
         self._cleaner_name: Optional[str] = None
         self._extra_headers: dict[str, str] = {}
+        self._form_data: dict[str, str] | None = None
         self._auth_token: str = cfg.auth_token
         self._context_token: str = cfg.context_token
         self._transaction_id: str = cfg.transaction_id
@@ -75,21 +77,27 @@ class HaloRequest:
         self._extra_headers["current-course-class-id"] = course_class_id
         return self
 
+    def form_data(self, data: dict[str, str]) -> "HaloRequest":
+        """Set form data for REST (multipart/form-data) requests."""
+        self._form_data = data
+        return self
+
     # --- Execution ---
 
-    def _build_headers(self) -> dict[str, str]:
+    def _build_headers(self, include_content_type: bool = True) -> dict[str, str]:
         txn = (
             f"{self._transaction_id}-{uuid.uuid4()}"
             if self._transaction_id
             else str(uuid.uuid4())
         )
         headers = {
-            "Content-Type": "application/json",
             "Accept": "application/json",
             "transaction-id": txn,
             "authorization": f"Bearer {self._auth_token}",
             "contexttoken": f"Bearer {self._context_token}",
         }
+        if include_content_type:
+            headers["Content-Type"] = "application/json"
         headers.update(self._extra_headers)
         return headers
 
@@ -114,6 +122,29 @@ class HaloRequest:
         if "errors" in data:
             messages = [e.get("message", "Unknown error") for e in data["errors"]]
             raise HaloAPIError(self._operation_name, messages)
+
+        if self._cleaner_name:
+            return clean_response(self._cleaner_name, data)
+
+        return data
+
+    def execute_form_post(self, path: str) -> dict[str, Any]:
+        """Execute a REST POST with multipart/form-data to the orchestration API."""
+        if not self._form_data:
+            raise ValueError(f"No form data set for operation '{self._operation_name}'")
+
+        url = f"{ORCHESTRATION_ENDPOINT}{path}"
+        # (None, value) tuples tell httpx to send multipart form fields (not files)
+        fields = {k: (None, v) for k, v in self._form_data.items()}
+
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                url,
+                headers=self._build_headers(include_content_type=False),
+                files=fields,
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
         if self._cleaner_name:
             return clean_response(self._cleaner_name, data)
