@@ -103,6 +103,7 @@ def clean_class_details(raw: dict) -> dict:
                 "assessments": [
                     {
                         k: v for k, v in {
+                            "id": a["id"],
                             "title": a["title"],
                             "type": a.get("type"),
                             "points": a.get("points"),

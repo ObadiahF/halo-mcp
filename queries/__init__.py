@@ -24,6 +24,10 @@ from .user import (
     GET_USER_PREFERENCE_DETAILS,
     GET_USER_ALERT_COUNT,
 )
+from .assignment import (
+    COURSE_CLASS_ASSESSMENT,
+    BULK_ASSIGNMENT_RESOURCE,
+)
 
 __all__ = [
     "GET_COURSE_CLASSES_FOR_USER",
@@ -40,4 +44,6 @@ __all__ = [
     "GET_USER_BY_ID",
     "GET_USER_PREFERENCE_DETAILS",
     "GET_USER_ALERT_COUNT",
+    "COURSE_CLASS_ASSESSMENT",
+    "BULK_ASSIGNMENT_RESOURCE",
 ]

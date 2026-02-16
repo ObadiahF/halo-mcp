@@ -46,6 +46,7 @@ class HaloRequest:
         self._cleaner_name: Optional[str] = None
         self._extra_headers: dict[str, str] = {}
         self._form_data: dict[str, str] | None = None
+        self._json_body: Any = None
         self._auth_token: str = cfg.auth_token
         self._context_token: str = cfg.context_token
         self._transaction_id: str = cfg.transaction_id
@@ -80,6 +81,11 @@ class HaloRequest:
     def form_data(self, data: dict[str, str]) -> "HaloRequest":
         """Set form data for REST (multipart/form-data) requests."""
         self._form_data = data
+        return self
+
+    def json_body(self, body: Any) -> "HaloRequest":
+        """Set JSON body for REST (application/json) requests."""
+        self._json_body = body
         return self
 
     # --- Execution ---
@@ -150,3 +156,33 @@ class HaloRequest:
             return clean_response(self._cleaner_name, data)
 
         return data
+
+    def execute_rest_post(self, path: str) -> Any:
+        """Execute a REST POST with application/json to the orchestration API."""
+        if self._json_body is None:
+            raise ValueError(f"No JSON body set for operation '{self._operation_name}'")
+
+        url = f"{ORCHESTRATION_ENDPOINT}{path}"
+
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                url, headers=self._build_headers(), json=self._json_body
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        if self._cleaner_name:
+            return clean_response(self._cleaner_name, data)
+
+        return data
+
+
+def upload_to_s3(presigned_url: str, file_bytes: bytes, content_type: str) -> None:
+    """Upload raw file bytes to an S3 presigned URL (no Halo auth)."""
+    with httpx.Client(timeout=120.0) as client:
+        resp = client.put(
+            presigned_url,
+            content=file_bytes,
+            headers={"Content-Type": content_type},
+        )
+        resp.raise_for_status()
