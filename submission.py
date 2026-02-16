@@ -1,13 +1,10 @@
 """
 Assignment submission orchestration.
 
-Executes the full 6-step submission flow:
-1. Fetch assessment metadata (GraphQL)
-2. Get presigned S3 upload URL (REST)
-3. Upload file to S3 (raw PUT)
-4. Link resource to submission (GraphQL mutation)
-5. Confirm upload status (REST)
-6. Final submit (REST)
+Two-phase flow:
+  1. upload_assignment_file_flow — upload a file and attach it to a submission
+     (repeatable for multiple files)
+  2. submit_assignment_flow — finalize and submit for grading
 """
 
 import mimetypes
@@ -17,6 +14,8 @@ from typing import Any
 from .request import HaloRequest, upload_to_s3
 from . import queries
 
+
+# ---- helpers ----
 
 def _read_file(file_path: str) -> tuple[Path, bytes]:
     """Read file and return (Path object, raw bytes). Raises ValueError if not found."""
@@ -37,29 +36,34 @@ def _content_type(path: Path) -> str:
     return mime or "application/octet-stream"
 
 
-def submit_assignment_flow(
+def _format_resources(resources: list[dict]) -> list[dict]:
+    """Format resource list into a concise summary."""
+    return [
+        {
+            "fileName": r["resource"]["name"],
+            "resourceId": r["resource"]["id"],
+            "uploadDate": r.get("uploadDate"),
+        }
+        for r in resources
+    ]
+
+
+# ---- phase 1: upload ----
+
+def upload_assignment_file_flow(
     class_id: str,
-    class_name: str,
     slug: str,
     assessment_id: str,
     file_path: str,
 ) -> dict[str, Any]:
-    """Execute the full assignment submission flow. Returns final status dict."""
+    """Upload a file and attach it to an assignment submission.
 
+    Steps: presigned URL → S3 upload → link resource → confirm upload.
+    Can be called multiple times to attach multiple files before submitting.
+    """
     path, file_bytes = _read_file(file_path)
 
-    # Step 1: Fetch assessment details
-    assessment_data = (
-        HaloRequest("CourseClassAssessment")
-        .query(queries.COURSE_CLASS_ASSESSMENT)
-        .variables({"assessmentId": assessment_id})
-        .class_slug(slug)
-        .course_class(class_id)
-        .execute()
-    )
-    assessment = assessment_data["data"]["assessment"]
-
-    # Step 2: Get presigned upload URL
+    # Get presigned upload URL
     presigned_resp = (
         HaloRequest("generate-presigned-urls")
         .class_slug(slug)
@@ -84,10 +88,10 @@ def submit_assignment_flow(
     resource_id = presigned_resp[0]["resourceId"]
     s3_url = presigned_resp[0]["s3UploadUrl"]
 
-    # Step 3: Upload file to S3
+    # Upload file to S3
     upload_to_s3(s3_url, file_bytes, _content_type(path))
 
-    # Step 4: Link resource to submission (GraphQL mutation)
+    # Link resource to submission (GraphQL mutation)
     bulk_resp = (
         HaloRequest("BulkAssignmentResource")
         .query(queries.BULK_ASSIGNMENT_RESOURCE)
@@ -101,10 +105,8 @@ def submit_assignment_flow(
     )
 
     submission = bulk_resp["data"]["bulkAddAssignmentSubmissionResource"]
-    submission_id = submission["id"]
-    resources = submission["resources"]
 
-    # Step 5: Confirm upload status
+    # Confirm upload status
     (
         HaloRequest("fileUploadStatus")
         .class_slug(slug)
@@ -117,7 +119,58 @@ def submit_assignment_flow(
         .execute_rest_post("/api/v1/orchestrate/fileUploadStatus")
     )
 
-    # Step 6: Final submit
+    return {
+        "uploadedFile": path.name,
+        "submissionId": submission["id"],
+        "totalAttachedFiles": len(submission["resources"]),
+        "attachedFiles": _format_resources(submission["resources"]),
+    }
+
+
+# ---- phase 2: submit ----
+
+def submit_assignment_flow(
+    class_id: str,
+    class_name: str,
+    slug: str,
+    assessment_id: str,
+) -> dict[str, Any]:
+    """Finalize and submit an assignment for grading.
+
+    Fetches assessment metadata and current submission state,
+    then submits all attached resources.
+    """
+    # Fetch assessment details (title, requiresLopesWrite)
+    assessment_data = (
+        HaloRequest("CourseClassAssessment")
+        .query(queries.COURSE_CLASS_ASSESSMENT)
+        .variables({"assessmentId": assessment_id})
+        .class_slug(slug)
+        .course_class(class_id)
+        .execute()
+    )
+    assessment = assessment_data["data"]["assessment"]
+
+    # Fetch current submission state (submission ID + all attached resources)
+    submission_data = (
+        HaloRequest("AssignmentSubmission")
+        .query(queries.ASSIGNMENT_SUBMISSION)
+        .variables({"courseClassAssessmentId": assessment_id})
+        .class_slug(slug)
+        .course_class(class_id)
+        .execute()
+    )
+    submission = submission_data["data"]["assignmentSubmission"]
+    submission_id = submission["id"]
+    resources = submission["resources"]
+
+    if not resources:
+        raise ValueError(
+            "No files attached to this assignment. "
+            "Use upload_assignment_file first."
+        )
+
+    # Build resource info for submit payload
     resource_info = [
         {
             "assignmentSubmissionResourceId": r["id"],
@@ -151,5 +204,5 @@ def submit_assignment_flow(
         "status": submit_resp.get("status", "Unknown"),
         "submissionId": submission_id,
         "assessmentTitle": assessment["title"],
-        "fileName": path.name,
+        "filesSubmitted": [r["fileName"] for r in resource_info],
     }

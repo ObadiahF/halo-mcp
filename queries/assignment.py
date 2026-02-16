@@ -1,5 +1,34 @@
 """Assignment submission GraphQL queries and mutations."""
 
+ASSIGNMENT_SUBMISSION = """
+query AssignmentSubmission($courseClassAssessmentId: String!) {
+  assignmentSubmission: getUserAssignmentSubmissionForAssessment(
+    courseClassAssessmentId: $courseClassAssessmentId
+  ) {
+    id
+    status
+    dueDate
+    submissionDate
+    resources {
+      id
+      isFinal
+      similarityReportStatusEnum
+      similarityScore
+      uploadDate
+      resource {
+        id
+        name
+        kind
+        type
+        __typename
+      }
+      __typename
+    }
+    __typename
+  }
+}
+"""
+
 COURSE_CLASS_ASSESSMENT = """
 query CourseClassAssessment($assessmentId: String!) {
   assessment: getCourseClassAssessmentById(id: $assessmentId) {
