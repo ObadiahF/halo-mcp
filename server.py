@@ -350,12 +350,16 @@ def user(user_id: str) -> dict:
         "Can be called multiple times to attach multiple files before submitting. "
         "Pass a course code (e.g. 'CST-321'), class name, or slug for the class. "
         "The assessment_id is the UUID of the assignment — get it from view_assignments. "
-        "The file_path must be an absolute path to a local file readable by the server. "
+        "file_path must be an absolute path to a local file. "
         "After uploading all files, call submit_assignment to finalize."
     ),
     tags={"assignments"},
 )
-def upload_assignment_file(class_ref: str, assessment_id: str, file_path: str) -> dict:
+def upload_assignment_file(
+    class_ref: str,
+    assessment_id: str,
+    file_path: str,
+) -> dict:
     """Upload a file to an assignment. Call submit_assignment when all files are attached."""
     cls = class_cache.resolve(class_ref)
     if not cls:

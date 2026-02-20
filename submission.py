@@ -17,22 +17,23 @@ from . import queries
 
 # ---- helpers ----
 
-def _read_file(file_path: str) -> tuple[Path, bytes]:
-    """Read file and return (Path object, raw bytes). Raises ValueError if not found."""
+def _read_file(file_path: str) -> tuple[str, bytes]:
+    """Read a file and return (filename, raw bytes)."""
     p = Path(file_path).expanduser().resolve()
     if not p.is_file():
         raise ValueError(f"File not found: {file_path}")
-    return p, p.read_bytes()
+    return p.name, p.read_bytes()
 
 
-def _file_type(path: Path) -> str:
+def _file_type(filename: str) -> str:
     """Infer short file type string (e.g. 'pdf', 'docx') from extension."""
-    return path.suffix.lstrip(".").lower() or "bin"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+    return ext
 
 
-def _content_type(path: Path) -> str:
-    """Infer MIME content type from file extension."""
-    mime, _ = mimetypes.guess_type(str(path))
+def _content_type(filename: str) -> str:
+    """Infer MIME content type from filename."""
+    mime, _ = mimetypes.guess_type(filename)
     return mime or "application/octet-stream"
 
 
@@ -61,7 +62,7 @@ def upload_assignment_file_flow(
     Steps: presigned URL → S3 upload → link resource → confirm upload.
     Can be called multiple times to attach multiple files before submitting.
     """
-    path, file_bytes = _read_file(file_path)
+    file_name, file_bytes = _read_file(file_path)
 
     # Get presigned upload URL
     presigned_resp = (
@@ -72,9 +73,9 @@ def upload_assignment_file_flow(
             "type": "assignment_submission",
             "kind": "FILE",
             "description": "",
-            "fileName": path.name,
+            "fileName": file_name,
             "fileSize": len(file_bytes),
-            "fileType": _file_type(path),
+            "fileType": _file_type(file_name),
             "storageProviderEnum": ["S3"],
             "resourceSignature": {
                 "courseClassId": class_id,
@@ -89,7 +90,7 @@ def upload_assignment_file_flow(
     s3_url = presigned_resp[0]["s3UploadUrl"]
 
     # Upload file to S3
-    upload_to_s3(s3_url, file_bytes, _content_type(path))
+    upload_to_s3(s3_url, file_bytes, _content_type(file_name))
 
     # Link resource to submission (GraphQL mutation)
     bulk_resp = (
@@ -120,7 +121,7 @@ def upload_assignment_file_flow(
     )
 
     return {
-        "uploadedFile": path.name,
+        "uploadedFile": file_name,
         "submissionId": submission["id"],
         "totalAttachedFiles": len(submission["resources"]),
         "attachedFiles": _format_resources(submission["resources"]),
