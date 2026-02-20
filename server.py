@@ -14,6 +14,7 @@ from fastmcp.exceptions import ToolError
 
 from HaloMCP.request import HaloRequest, HaloAPIError
 from HaloMCP.cleaners import clean_notifications
+from HaloMCP.submission import upload_assignment_file_flow, submit_assignment_flow
 from HaloMCP import queries, class_cache
 
 mcp = FastMCP(
@@ -335,6 +336,67 @@ def user(user_id: str) -> dict:
             .variables({"userId": user_id})
             .cleaner("user")
             .execute()
+        )
+    except Exception as e:
+        _handle_error(e)
+
+
+# ==================== Assignment Submission Tools ====================
+
+
+@mcp.tool(
+    description=(
+        "Upload a file and attach it to an assignment submission. "
+        "Can be called multiple times to attach multiple files before submitting. "
+        "Pass a course code (e.g. 'CST-321'), class name, or slug for the class. "
+        "The assessment_id is the UUID of the assignment — get it from view_assignments. "
+        "file_path must be an absolute path to a local file. "
+        "After uploading all files, call submit_assignment to finalize."
+    ),
+    tags={"assignments"},
+)
+def upload_assignment_file(
+    class_ref: str,
+    assessment_id: str,
+    file_path: str,
+) -> dict:
+    """Upload a file to an assignment. Call submit_assignment when all files are attached."""
+    cls = class_cache.resolve(class_ref)
+    if not cls:
+        raise ToolError(f"Class not found: '{class_ref}'. Call list_classes first.")
+    try:
+        return upload_assignment_file_flow(
+            class_id=cls["id"],
+            slug=cls["slug"],
+            assessment_id=assessment_id,
+            file_path=file_path,
+        )
+    except Exception as e:
+        _handle_error(e)
+
+
+@mcp.tool(
+    description=(
+        "Finalize and submit an assignment for grading. "
+        "Submits ALL files currently attached to the assignment. "
+        "Upload files first with upload_assignment_file. "
+        "Pass a course code (e.g. 'CST-321'), class name, or slug for the class. "
+        "The assessment_id is the UUID of the assignment — get it from view_assignments. "
+        "WARNING: This action is irreversible — it submits the assignment for grading."
+    ),
+    tags={"assignments"},
+)
+def submit_assignment(class_ref: str, assessment_id: str) -> dict:
+    """Submit an assignment for grading. Upload files first with upload_assignment_file."""
+    cls = class_cache.resolve(class_ref)
+    if not cls:
+        raise ToolError(f"Class not found: '{class_ref}'. Call list_classes first.")
+    try:
+        return submit_assignment_flow(
+            class_id=cls["id"],
+            class_name=cls["name"],
+            slug=cls["slug"],
+            assessment_id=assessment_id,
         )
     except Exception as e:
         _handle_error(e)
