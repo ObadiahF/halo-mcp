@@ -8,6 +8,7 @@ Run with:
 """
 
 import os
+from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -19,8 +20,21 @@ from HaloMCP.config import reload_config as _reload_config
 from HaloMCP.auth import setup_session as _setup_session, refresh_tokens as _refresh_tokens
 from HaloMCP import queries, class_cache
 
+@asynccontextmanager
+async def lifespan(server):
+    """Set up session on startup for automatic token refresh."""
+    try:
+        result = _setup_session()
+        print(f"[Halo MCP] Session ready — expires {result.get('expires', 'unknown')}")
+    except Exception as e:
+        print(f"[Halo MCP] Session setup skipped: {e}")
+        print("[Halo MCP] Call the 'setup_session' tool manually after providing valid tokens.")
+    yield {}
+
+
 mcp = FastMCP(
     name="Halo LMS",
+    lifespan=lifespan,
     instructions=(
         "Halo LMS API server for Grand Canyon University. "
         "Provides access to classes, grades, discussions, announcements, "
@@ -505,10 +519,13 @@ def refresh() -> dict:
 
 
 def main():
-    """Run the MCP server. Set MCP_TRANSPORT=sse for HTTP mode (Docker)."""
+    """Run the MCP server. Set MCP_TRANSPORT=streamable-http for HTTP mode (Docker)."""
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     host = os.environ.get("MCP_HOST", "127.0.0.1")
-    mcp.run(transport=transport, host=host)
+    if transport == "stdio":
+        mcp.run(transport=transport)
+    else:
+        mcp.run(transport=transport, host=host)
 
 
 if __name__ == "__main__":
