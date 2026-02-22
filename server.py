@@ -12,9 +12,10 @@ import os
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from HaloMCP.request import HaloRequest, HaloAPIError
+from HaloMCP.request import HaloRequest, HaloAPIError, HaloTokenExpiredError
 from HaloMCP.cleaners import clean_notifications
 from HaloMCP.submission import upload_assignment_file_flow, submit_assignment_flow
+from HaloMCP.config import reload_config as _reload_config
 from HaloMCP import queries, class_cache
 
 mcp = FastMCP(
@@ -30,6 +31,10 @@ mcp = FastMCP(
 
 def _handle_error(e: Exception) -> None:
     """Convert API/HTTP errors into MCP ToolErrors."""
+    if isinstance(e, HaloTokenExpiredError):
+        raise ToolError(
+            f"⚠️ TOKEN EXPIRED — {'; '.join(e.messages)}\n\n{e.help_text}"
+        )
     if isinstance(e, HaloAPIError):
         raise ToolError(f"Halo API error: {'; '.join(e.messages)}")
     raise ToolError(f"Request failed: {e}")
@@ -400,6 +405,62 @@ def submit_assignment(class_ref: str, assessment_id: str) -> dict:
         )
     except Exception as e:
         _handle_error(e)
+
+
+# ==================== Token Management Tools ====================
+
+
+@mcp.tool(
+    description=(
+        "Check if the current Halo auth tokens are valid by making a lightweight API call. "
+        "Returns token status. Use this to verify tokens after updating config.json."
+    ),
+    tags={"auth"},
+)
+def check_tokens() -> dict:
+    """Validate current auth tokens against the Halo API."""
+    try:
+        result = (
+            HaloRequest("getCourseClassesForUser")
+            .query(queries.GET_COURSE_CLASSES_FOR_USER)
+            .variables({"pgNum": 1, "pgSize": 1})
+            .cleaner("list-classes")
+            .execute()
+        )
+        classes = result.get("classes", [])
+        return {
+            "status": "valid",
+            "message": f"Tokens are working. Found {len(classes)} class(es).",
+        }
+    except HaloTokenExpiredError as e:
+        return {
+            "status": "expired",
+            "message": e.help_text,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Unexpected error: {e}",
+        }
+
+
+@mcp.tool(
+    description=(
+        "Reload auth tokens from config.json or environment variables without restarting the server. "
+        "Use this after updating config.json with fresh tokens. "
+        "Automatically validates the new tokens after loading."
+    ),
+    tags={"auth"},
+)
+def reload_tokens() -> dict:
+    """Reload tokens from config.json/env vars and validate them."""
+    try:
+        _reload_config()
+    except ValueError as e:
+        return {"status": "error", "message": f"Config error: {e}"}
+
+    # Validate the newly loaded tokens
+    return check_tokens()
 
 
 # ==================== Entry Point ====================
