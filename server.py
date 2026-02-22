@@ -16,6 +16,7 @@ from HaloMCP.request import HaloRequest, HaloAPIError, HaloTokenExpiredError
 from HaloMCP.cleaners import clean_notifications
 from HaloMCP.submission import upload_assignment_file_flow, submit_assignment_flow
 from HaloMCP.config import reload_config as _reload_config
+from HaloMCP.auth import setup_session as _setup_session, refresh_tokens as _refresh_tokens
 from HaloMCP import queries, class_cache
 
 mcp = FastMCP(
@@ -461,6 +462,43 @@ def reload_tokens() -> dict:
 
     # Validate the newly loaded tokens
     return check_tokens()
+
+
+@mcp.tool(
+    description=(
+        "Create a long-lived session for automatic token refresh. "
+        "Call this ONCE after setting up config.json with valid tokens. "
+        "Creates a session that lasts ~30 days. While the session is active, "
+        "expired tokens are automatically refreshed — no manual intervention needed. "
+        "When the session itself expires (~30 days), update tokens and call this again."
+    ),
+    tags={"auth"},
+)
+def setup_session() -> dict:
+    """Create a session from current tokens for automatic refresh."""
+    try:
+        return _setup_session()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool(
+    description=(
+        "Manually refresh auth tokens using the stored session cookie. "
+        "This happens automatically when tokens expire during API calls, "
+        "but you can call this proactively. Requires setup_session to have been called first."
+    ),
+    tags={"auth"},
+)
+def refresh() -> dict:
+    """Manually refresh tokens using the session cookie."""
+    try:
+        result = _refresh_tokens()
+        # Reload config to pick up new tokens
+        _reload_config()
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 # ==================== Entry Point ====================

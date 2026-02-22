@@ -77,23 +77,40 @@ claude mcp add --transport sse halo-lms http://localhost:8000/sse
 
 The Docker container bind-mounts `config.json` and your home directory (read-only) from the host, so file uploads via `file_path` work the same as stdio mode. After updating tokens, restart with `docker compose restart`.
 
-## Token Expiry
+## Token Refresh
 
-Halo uses Azure AD SSO with encrypted JWE tokens — they **cannot be refreshed programmatically**. When tokens expire, the server gives a clear error with instructions:
+Halo tokens expire periodically, but the server handles this **automatically**:
+
+### One-time setup
+
+After configuring `config.json` with your tokens, call the `setup_session` tool. This creates a long-lived session (~30 days) that enables automatic token refresh.
 
 ```
-⚠️ TOKEN EXPIRED
-Your Halo auth tokens have expired or are invalid.
-
-To get fresh tokens:
-  1. Log into https://halo.gcu.edu in your browser
-  2. Open DevTools → Application → Cookies (or Network tab)
-  3. Copy the new authToken and contextToken values
-  4. Update config.json (or set HALO_AUTH_TOKEN / HALO_CONTEXT_TOKEN env vars)
-  5. Call the reload_tokens tool (or restart the server)
+setup_session → "Session created, expires 2026-03-24T..."
 ```
 
-Use `check_tokens` to verify your tokens are working, and `reload_tokens` to hot-reload new tokens from `config.json` without restarting.
+### How it works
+
+1. `setup_session` calls Halo's next-auth API to create a session from your tokens
+2. The session cookie is stored in `config.json`
+3. When tokens expire during any API call, the server automatically:
+   - Uses the session cookie to fetch fresh tokens
+   - Saves the new tokens to `config.json`
+   - Retries the failed request
+4. This is completely transparent — no user intervention needed
+
+### When the session expires (~30 days)
+
+1. Get fresh tokens from your browser (DevTools → Network/Cookies)
+2. Update `config.json` with the new `authToken` and `contextToken`
+3. Call `setup_session` again
+
+### Manual token management
+
+- `check_tokens` — verify current tokens are valid
+- `reload_tokens` — hot-reload tokens from config.json
+- `refresh` — manually trigger a session-based token refresh
+- `setup_session` — create/renew the long-lived session
 
 ## Available Tools
 
@@ -114,3 +131,5 @@ Use `check_tokens` to verify your tokens are working, and `reload_tokens` to hot
 | `submit_assignment` | Submit an assignment for grading |
 | `check_tokens` | Validate current auth tokens are working |
 | `reload_tokens` | Hot-reload tokens from config.json without restarting |
+| `setup_session` | Create a ~30-day session for automatic token refresh |
+| `refresh` | Manually refresh tokens using the session cookie |
