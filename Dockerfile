@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . ./HaloMCP/
 
-ENV MCP_TRANSPORT=sse
+ENV MCP_TRANSPORT=streamable-http
 ENV MCP_HOST=0.0.0.0
 EXPOSE 8000
 

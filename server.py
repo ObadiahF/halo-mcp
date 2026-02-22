@@ -406,7 +406,7 @@ def submit_assignment(class_ref: str, assessment_id: str) -> dict:
 
 
 def main():
-    """Run the MCP server. Set MCP_TRANSPORT=sse for HTTP mode (Docker)."""
+    """Run the MCP server. Set MCP_TRANSPORT=streamable-http for HTTP mode (Docker)."""
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     host = os.environ.get("MCP_HOST", "127.0.0.1")
     mcp.run(transport=transport, host=host)
