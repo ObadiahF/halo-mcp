@@ -7,7 +7,7 @@ import uuid
 import httpx
 from typing import Any, Optional
 
-from .config import get_config
+from .config import get_config, reload_config
 from .cleaners import clean_response
 
 GRAPHQL_ENDPOINT = "https://gateway.halo.gcu.edu/"
@@ -21,6 +21,53 @@ class HaloAPIError(Exception):
         self.operation = operation
         self.messages = messages
         super().__init__(f"Halo API error in '{operation}': {'; '.join(messages)}")
+
+
+class HaloTokenExpiredError(HaloAPIError):
+    """Raised when auth tokens are expired or invalid.
+
+    Halo uses Azure AD SSO with JWE tokens that cannot be refreshed
+    programmatically. Users must re-authenticate through the browser.
+    """
+
+    def __init__(self, operation: str, messages: list[str]):
+        super().__init__(operation, messages)
+        self.help_text = (
+            "Your Halo auth tokens have expired or are invalid.\n\n"
+            "To get fresh tokens:\n"
+            "  1. Log into https://halo.gcu.edu in your browser\n"
+            "  2. Open DevTools → Application → Cookies (or Network tab)\n"
+            "  3. Copy the new authToken and contextToken values\n"
+            "  4. Update config.json (or set HALO_AUTH_TOKEN / HALO_CONTEXT_TOKEN env vars)\n"
+            "  5. Call the reload_config tool (or restart the server)\n"
+        )
+
+
+def _check_for_auth_errors(operation: str, data: dict) -> None:
+    """Check GraphQL response for authentication errors and raise appropriately."""
+    if "errors" not in data:
+        return
+
+    errors = data["errors"]
+    messages = [e.get("message", "Unknown error") for e in errors]
+
+    # Check if any error is an auth/token error
+    for error in errors:
+        ext = error.get("extensions", {})
+        error_code = ext.get("errorCode")
+        message = error.get("message", "").lower()
+
+        if (
+            error_code == 401
+            or "unauthorized" in message
+            or "invalid" in message and ("token" in message or "jwt" in message or "jwe" in message or "jws" in message)
+            or "expired" in message
+            or "authentication" in message and "failed" in message
+        ):
+            raise HaloTokenExpiredError(operation, messages)
+
+    # Not an auth error — raise generic
+    raise HaloAPIError(operation, messages)
 
 
 class HaloRequest:
@@ -107,11 +154,34 @@ class HaloRequest:
         headers.update(self._extra_headers)
         return headers
 
+    def _refresh_tokens_and_reload(self) -> bool:
+        """Attempt to refresh tokens via session cookie and reload config.
+
+        Returns True if refresh succeeded, False otherwise.
+        """
+        try:
+            from .auth import refresh_tokens
+            result = refresh_tokens()
+            if result.get("status") == "refreshed":
+                # Reload config to pick up new tokens
+                cfg = reload_config()
+                self._auth_token = cfg.auth_token
+                self._context_token = cfg.context_token
+                self._transaction_id = cfg.transaction_id
+                return True
+        except Exception:
+            pass
+        return False
+
     def execute(self) -> dict[str, Any]:
-        """Execute the request. Raises on HTTP or GraphQL errors."""
+        """Execute the request. Auto-refreshes tokens on auth errors."""
         if not self._query_str:
             raise ValueError(f"No query set for operation '{self._operation_name}'")
 
+        return self._execute_with_retry()
+
+    def _execute_graphql(self) -> dict[str, Any]:
+        """Execute GraphQL request (single attempt)."""
         payload = {
             "operationName": self._operation_name,
             "query": self._query_str,
@@ -122,25 +192,45 @@ class HaloRequest:
             resp = client.post(
                 GRAPHQL_ENDPOINT, headers=self._build_headers(), json=payload
             )
+            if resp.status_code == 401:
+                raise HaloTokenExpiredError(
+                    self._operation_name, ["HTTP 401 Unauthorized"]
+                )
             resp.raise_for_status()
             data = resp.json()
 
         if "errors" in data:
-            messages = [e.get("message", "Unknown error") for e in data["errors"]]
-            raise HaloAPIError(self._operation_name, messages)
+            _check_for_auth_errors(self._operation_name, data)
 
         if self._cleaner_name:
             return clean_response(self._cleaner_name, data)
 
         return data
 
+    def _execute_with_retry(self) -> dict[str, Any]:
+        """Execute with automatic token refresh on auth failure."""
+        try:
+            return self._execute_graphql()
+        except HaloTokenExpiredError:
+            if self._refresh_tokens_and_reload():
+                # Retry with fresh tokens
+                return self._execute_graphql()
+            raise
+
     def execute_form_post(self, path: str) -> dict[str, Any]:
-        """Execute a REST POST with multipart/form-data to the orchestration API."""
+        """Execute a REST POST with multipart/form-data. Auto-refreshes tokens."""
         if not self._form_data:
             raise ValueError(f"No form data set for operation '{self._operation_name}'")
 
+        try:
+            return self._execute_form_post_inner(path)
+        except HaloTokenExpiredError:
+            if self._refresh_tokens_and_reload():
+                return self._execute_form_post_inner(path)
+            raise
+
+    def _execute_form_post_inner(self, path: str) -> dict[str, Any]:
         url = f"{ORCHESTRATION_ENDPOINT}{path}"
-        # (None, value) tuples tell httpx to send multipart form fields (not files)
         fields = {k: (None, v) for k, v in self._form_data.items()}
 
         with httpx.Client(timeout=30.0) as client:
@@ -149,6 +239,10 @@ class HaloRequest:
                 headers=self._build_headers(include_content_type=False),
                 files=fields,
             )
+            if resp.status_code == 401:
+                raise HaloTokenExpiredError(
+                    self._operation_name, ["HTTP 401 Unauthorized"]
+                )
             resp.raise_for_status()
             data = resp.json()
 
@@ -158,16 +252,28 @@ class HaloRequest:
         return data
 
     def execute_rest_post(self, path: str) -> Any:
-        """Execute a REST POST with application/json to the orchestration API."""
+        """Execute a REST POST with application/json. Auto-refreshes tokens."""
         if self._json_body is None:
             raise ValueError(f"No JSON body set for operation '{self._operation_name}'")
 
+        try:
+            return self._execute_rest_post_inner(path)
+        except HaloTokenExpiredError:
+            if self._refresh_tokens_and_reload():
+                return self._execute_rest_post_inner(path)
+            raise
+
+    def _execute_rest_post_inner(self, path: str) -> Any:
         url = f"{ORCHESTRATION_ENDPOINT}{path}"
 
         with httpx.Client(timeout=30.0) as client:
             resp = client.post(
                 url, headers=self._build_headers(), json=self._json_body
             )
+            if resp.status_code == 401:
+                raise HaloTokenExpiredError(
+                    self._operation_name, ["HTTP 401 Unauthorized"]
+                )
             resp.raise_for_status()
             data = resp.json()
 
