@@ -8,17 +8,33 @@ Run with:
 """
 
 import os
+from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from HaloMCP.request import HaloRequest, HaloAPIError
+from HaloMCP.request import HaloRequest, HaloAPIError, HaloTokenExpiredError
 from HaloMCP.cleaners import clean_notifications
 from HaloMCP.submission import upload_assignment_file_flow, submit_assignment_flow
+from HaloMCP.config import reload_config as _reload_config
+from HaloMCP.auth import setup_session as _setup_session, refresh_tokens as _refresh_tokens
 from HaloMCP import queries, class_cache
+
+@asynccontextmanager
+async def lifespan(server):
+    """Set up session on startup for automatic token refresh."""
+    try:
+        result = _setup_session()
+        print(f"[Halo MCP] Session ready — expires {result.get('expires', 'unknown')}")
+    except Exception as e:
+        print(f"[Halo MCP] Session setup skipped: {e}")
+        print("[Halo MCP] Call the 'setup_session' tool manually after providing valid tokens.")
+    yield {}
+
 
 mcp = FastMCP(
     name="Halo LMS",
+    lifespan=lifespan,
     instructions=(
         "Halo LMS API server for Grand Canyon University. "
         "Provides access to classes, grades, discussions, announcements, "
@@ -30,6 +46,10 @@ mcp = FastMCP(
 
 def _handle_error(e: Exception) -> None:
     """Convert API/HTTP errors into MCP ToolErrors."""
+    if isinstance(e, HaloTokenExpiredError):
+        raise ToolError(
+            f"⚠️ TOKEN EXPIRED — {'; '.join(e.messages)}\n\n{e.help_text}"
+        )
     if isinstance(e, HaloAPIError):
         raise ToolError(f"Halo API error: {'; '.join(e.messages)}")
     raise ToolError(f"Request failed: {e}")
@@ -402,6 +422,99 @@ def submit_assignment(class_ref: str, assessment_id: str) -> dict:
         _handle_error(e)
 
 
+# ==================== Token Management Tools ====================
+
+
+@mcp.tool(
+    description=(
+        "Check if the current Halo auth tokens are valid by making a lightweight API call. "
+        "Returns token status. Use this to verify tokens after updating config.json."
+    ),
+    tags={"auth"},
+)
+def check_tokens() -> dict:
+    """Validate current auth tokens against the Halo API."""
+    try:
+        result = (
+            HaloRequest("getCourseClassesForUser")
+            .query(queries.GET_COURSE_CLASSES_FOR_USER)
+            .variables({"pgNum": 1, "pgSize": 1})
+            .cleaner("list-classes")
+            .execute()
+        )
+        classes = result.get("classes", [])
+        return {
+            "status": "valid",
+            "message": f"Tokens are working. Found {len(classes)} class(es).",
+        }
+    except HaloTokenExpiredError as e:
+        return {
+            "status": "expired",
+            "message": e.help_text,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Unexpected error: {e}",
+        }
+
+
+@mcp.tool(
+    description=(
+        "Reload auth tokens from config.json or environment variables without restarting the server. "
+        "Use this after updating config.json with fresh tokens. "
+        "Automatically validates the new tokens after loading."
+    ),
+    tags={"auth"},
+)
+def reload_tokens() -> dict:
+    """Reload tokens from config.json/env vars and validate them."""
+    try:
+        _reload_config()
+    except ValueError as e:
+        return {"status": "error", "message": f"Config error: {e}"}
+
+    # Validate the newly loaded tokens
+    return check_tokens()
+
+
+@mcp.tool(
+    description=(
+        "Create a long-lived session for automatic token refresh. "
+        "Call this ONCE after setting up config.json with valid tokens. "
+        "Creates a session that lasts ~30 days. While the session is active, "
+        "expired tokens are automatically refreshed — no manual intervention needed. "
+        "When the session itself expires (~30 days), update tokens and call this again."
+    ),
+    tags={"auth"},
+)
+def setup_session() -> dict:
+    """Create a session from current tokens for automatic refresh."""
+    try:
+        return _setup_session()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool(
+    description=(
+        "Manually refresh auth tokens using the stored session cookie. "
+        "This happens automatically when tokens expire during API calls, "
+        "but you can call this proactively. Requires setup_session to have been called first."
+    ),
+    tags={"auth"},
+)
+def refresh() -> dict:
+    """Manually refresh tokens using the session cookie."""
+    try:
+        result = _refresh_tokens()
+        # Reload config to pick up new tokens
+        _reload_config()
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # ==================== Entry Point ====================
 
 
@@ -409,7 +522,10 @@ def main():
     """Run the MCP server. Set MCP_TRANSPORT=streamable-http for HTTP mode (Docker)."""
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     host = os.environ.get("MCP_HOST", "127.0.0.1")
-    mcp.run(transport=transport, host=host)
+    if transport == "stdio":
+        mcp.run(transport=transport)
+    else:
+        mcp.run(transport=transport, host=host)
 
 
 if __name__ == "__main__":

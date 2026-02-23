@@ -79,6 +79,41 @@ The Docker container bind-mounts `config.json` and your home directory (read-onl
 
 > **Note:** Previous versions used SSE transport (`/sse` endpoint). Streamable HTTP (`/mcp` endpoint) is the current MCP standard and is recommended for all new deployments.
 
+## Token Refresh
+
+Halo tokens expire periodically, but the server handles this **automatically**:
+
+### One-time setup
+
+After configuring `config.json` with your tokens, call the `setup_session` tool. This creates a long-lived session (~30 days) that enables automatic token refresh.
+
+```
+setup_session → "Session created, expires 2026-03-24T..."
+```
+
+### How it works
+
+1. `setup_session` calls Halo's next-auth API to create a session from your tokens
+2. The session cookie is stored in `config.json`
+3. When tokens expire during any API call, the server automatically:
+   - Uses the session cookie to fetch fresh tokens
+   - Saves the new tokens to `config.json`
+   - Retries the failed request
+4. This is completely transparent — no user intervention needed
+
+### When the session expires (~30 days)
+
+1. Get fresh tokens from your browser (DevTools → Network/Cookies)
+2. Update `config.json` with the new `authToken` and `contextToken`
+3. Call `setup_session` again
+
+### Manual token management
+
+- `check_tokens` — verify current tokens are valid
+- `reload_tokens` — hot-reload tokens from config.json
+- `refresh` — manually trigger a session-based token refresh
+- `setup_session` — create/renew the long-lived session
+
 ## Available Tools
 
 | Tool | Description |
@@ -96,3 +131,7 @@ The Docker container bind-mounts `config.json` and your home directory (read-onl
 | `user` | Get user profile by ID |
 | `upload_assignment_file` | Upload a file to an assignment (absolute file path) |
 | `submit_assignment` | Submit an assignment for grading |
+| `check_tokens` | Validate current auth tokens are working |
+| `reload_tokens` | Hot-reload tokens from config.json without restarting |
+| `setup_session` | Create a ~30-day session for automatic token refresh |
+| `refresh` | Manually refresh tokens using the session cookie |
