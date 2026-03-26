@@ -2,8 +2,7 @@
 Halo LMS MCP Server -- Exposes Halo LMS APIs as MCP tools.
 
 Run with:
-    fastmcp run HaloMCP/server.py:mcp
-    python -m HaloMCP.server
+    python server.py
     docker compose up  (SSE transport on port 8000)
 """
 
@@ -13,12 +12,13 @@ from contextlib import asynccontextmanager
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from HaloMCP.request import HaloRequest, HaloAPIError, HaloTokenExpiredError
-from HaloMCP.cleaners import clean_notifications
-from HaloMCP.submission import upload_assignment_file_flow, submit_assignment_flow
-from HaloMCP.config import reload_config as _reload_config
-from HaloMCP.auth import setup_session as _setup_session, refresh_tokens as _refresh_tokens
-from HaloMCP import queries, class_cache
+from request import HaloRequest, HaloAPIError, HaloTokenExpiredError
+from cleaners import clean_notifications
+from submission import upload_assignment_file_flow, submit_assignment_flow
+from config import reload_config as _reload_config
+from auth import setup_session as _setup_session, refresh_tokens as _refresh_tokens
+import queries
+import class_cache
 
 @asynccontextmanager
 async def lifespan(server):

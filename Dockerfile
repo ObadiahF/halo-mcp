@@ -5,10 +5,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . ./HaloMCP/
+COPY . .
 
 ENV MCP_TRANSPORT=streamable-http
 ENV MCP_HOST=0.0.0.0
 EXPOSE 8000
 
-CMD ["python", "-m", "HaloMCP"]
+CMD ["python", "server.py"]

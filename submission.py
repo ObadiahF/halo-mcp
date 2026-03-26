@@ -11,8 +11,8 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
-from .request import HaloRequest, upload_to_s3
-from . import queries
+from request import HaloRequest, upload_to_s3
+import queries
 
 
 # ---- helpers ----

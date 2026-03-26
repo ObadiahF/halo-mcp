@@ -8,8 +8,8 @@ Validates that:
   3. Auth + context tokens are applied automatically
 
 Usage:
-    python -m HaloMCP.test_server
-    python -m HaloMCP.test_server --verbose
+    python test_server.py
+    python test_server.py --verbose
 """
 
 import json
@@ -17,9 +17,10 @@ import sys
 import time
 from pathlib import Path
 
-from .request import HaloRequest, HaloAPIError
-from .cleaners import clean_notifications
-from . import queries, class_cache
+from request import HaloRequest, HaloAPIError
+from cleaners import clean_notifications
+import queries
+import class_cache
 
 
 # ==================== Test State ====================
