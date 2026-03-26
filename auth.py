@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from .config import get_config, _CONFIG_FILE, HaloConfig
+from config import get_config, _CONFIG_FILE, HaloConfig
 
 HALO_BASE = "https://halo.gcu.edu"
 
@@ -152,6 +152,16 @@ def refresh_tokens() -> dict:
         session_resp.raise_for_status()
         session = session_resp.json()
 
+        # Capture rotated session cookies from the response.
+        # next-auth may rotate the session token on each call —
+        # if we don't save the new cookies, subsequent refreshes fail.
+        updated_cookies = dict(session_cookies)
+        for cookie in client.cookies.jar:
+            if cookie.name in SESSION_COOKIE_NAMES:
+                updated_cookies[cookie.name] = cookie.value
+        if updated_cookies != session_cookies:
+            _save_session_cookies(updated_cookies)
+
     if not session.get("userId"):
         raise RuntimeError(
             "Session cookie has expired. You need to re-authenticate:\n"
@@ -185,13 +195,18 @@ def setup_session() -> dict:
 
     This only needs to be done once (or when the session expires after ~30 days).
     """
-    from .config import reload_config
+    from config import reload_config
     cfg = reload_config()
 
     result = create_session(cfg.auth_token, cfg.context_token)
 
     # Save session cookies for future refreshes
     _save_session_cookies(result["sessionCookies"])
+
+    # Save and reload tokens so in-memory config matches what the session returned
+    if result.get("authToken") and result.get("contextToken"):
+        _save_tokens(result["authToken"], result["contextToken"])
+        reload_config()
 
     return {
         "status": "session_created",

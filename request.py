@@ -7,8 +7,8 @@ import uuid
 import httpx
 from typing import Any, Optional
 
-from .config import get_config, reload_config
-from .cleaners import clean_response
+from config import get_config, reload_config
+from cleaners import clean_response
 
 GRAPHQL_ENDPOINT = "https://gateway.halo.gcu.edu/"
 ORCHESTRATION_ENDPOINT = "https://orchestration.halo.gcu.edu"
@@ -26,20 +26,21 @@ class HaloAPIError(Exception):
 class HaloTokenExpiredError(HaloAPIError):
     """Raised when auth tokens are expired or invalid.
 
-    Halo uses Azure AD SSO with JWE tokens that cannot be refreshed
-    programmatically. Users must re-authenticate through the browser.
+    Tokens are automatically refreshed via the next-auth session cookie
+    (see auth.py). This error is only raised when auto-refresh also fails,
+    meaning the session cookie itself has expired (~30 days).
     """
 
     def __init__(self, operation: str, messages: list[str]):
         super().__init__(operation, messages)
         self.help_text = (
-            "Your Halo auth tokens have expired or are invalid.\n\n"
-            "To get fresh tokens:\n"
+            "Your Halo auth tokens have expired and automatic refresh failed.\n\n"
+            "Your session cookie may have expired (~30 days). To fix:\n"
             "  1. Log into https://halo.gcu.edu in your browser\n"
             "  2. Open DevTools → Application → Cookies (or Network tab)\n"
             "  3. Copy the new authToken and contextToken values\n"
             "  4. Update config.json (or set HALO_AUTH_TOKEN / HALO_CONTEXT_TOKEN env vars)\n"
-            "  5. Call the reload_config tool (or restart the server)\n"
+            "  5. Call the 'setup_session' tool to create a new long-lived session\n"
         )
 
 
@@ -160,7 +161,7 @@ class HaloRequest:
         Returns True if refresh succeeded, False otherwise.
         """
         try:
-            from .auth import refresh_tokens
+            from auth import refresh_tokens
             result = refresh_tokens()
             if result.get("status") == "refreshed":
                 # Reload config to pick up new tokens
@@ -169,8 +170,8 @@ class HaloRequest:
                 self._context_token = cfg.context_token
                 self._transaction_id = cfg.transaction_id
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Halo MCP] Token refresh failed: {e}")
         return False
 
     def execute(self) -> dict[str, Any]:
