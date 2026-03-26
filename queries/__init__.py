@@ -1,30 +1,30 @@
 """GraphQL query strings for Halo LMS API."""
 
-from .course import (
+from queries.course import (
     GET_COURSE_CLASSES_FOR_USER,
     CURRENT_CLASS,
 )
-from .grading import (
+from queries.grading import (
     ALL_ASSESSMENT_GRADES,
     GRADE_OVERVIEW,
 )
-from .forums import (
+from queries.forums import (
     ALL_DQ_FOR_COURSE_CLASS,
     GET_DISCUSSION_FORUM_POSTS,
     GET_FORUM_NOTIFICATIONS,
     GET_ANNOUNCEMENTS_STUDENT,
 )
-from .inbox import (
+from queries.inbox import (
     GET_INBOX_LEFT_PANEL,
     GET_INBOX_NOTIFICATIONS,
     GET_POSTS_BY_INBOX_FORUM_ID,
 )
-from .user import (
+from queries.user import (
     GET_USER_BY_ID,
     GET_USER_PREFERENCE_DETAILS,
     GET_USER_ALERT_COUNT,
 )
-from .assignment import (
+from queries.assignment import (
     ASSIGNMENT_SUBMISSION,
     COURSE_CLASS_ASSESSMENT,
     BULK_ASSIGNMENT_RESOURCE,

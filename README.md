@@ -50,7 +50,7 @@ Add to your Claude Code MCP config (`~/.claude/settings.json` or project `.mcp.j
   "mcpServers": {
     "halo-lms": {
       "command": "python",
-      "args": ["-m", "HaloMCP"],
+      "args": ["server.py"],
       "cwd": "/path/to/HaloMCP"
     }
   }
@@ -60,7 +60,7 @@ Add to your Claude Code MCP config (`~/.claude/settings.json` or project `.mcp.j
 ### Direct (stdio)
 
 ```bash
-python -m HaloMCP
+python server.py
 ```
 
 ### Docker (Streamable HTTP on port 8000)
@@ -75,7 +75,7 @@ Then add it to Claude Code CLI:
 claude mcp add --transport http halo-lms http://localhost:8000/mcp
 ```
 
-The Docker container bind-mounts `config.json` and your home directory (read-only) from the host, so file uploads via `file_path` work the same as stdio mode. After updating tokens, restart with `docker compose restart`.
+The Docker container bind-mounts `config.json` (writable, so token refresh can persist new tokens) and your home directory (read-only) from the host, so file uploads via `file_path` work the same as stdio mode.
 
 > **Note:** Previous versions used SSE transport (`/sse` endpoint). Streamable HTTP (`/mcp` endpoint) is the current MCP standard and is recommended for all new deployments.
 
