@@ -17,6 +17,10 @@ from cleaners import clean_notifications
 from submission import upload_assignment_file_flow, submit_assignment_flow
 from config import reload_config as _reload_config
 from auth import setup_session as _setup_session, refresh_tokens as _refresh_tokens
+from queries.campus import (
+    fetch_food_venues, fetch_gym_status,
+    clean_food_venues, clean_gym_status,
+)
 import queries
 import class_cache
 
@@ -513,6 +517,64 @@ def refresh() -> dict:
         return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+# ==================== Campus Service Tools ====================
+
+
+@mcp.tool(
+    description=(
+        "Get food venue information on GCU campus. "
+        "Returns venue names, locations, descriptions, and current open/closed status "
+        "(America/Phoenix timezone). No authentication required. "
+        "Optionally filter by venue name (case-insensitive substring match)."
+    ),
+    tags={"campus"},
+)
+def food_venues(venue_name: str | None = None) -> dict:
+    """Get campus food venue info and hours."""
+    try:
+        venues = fetch_food_venues()
+        result = clean_food_venues(venues)
+        if venue_name:
+            needle = venue_name.lower()
+            result["venues"] = [
+                v for v in result["venues"]
+                if v.get("name") and needle in v["name"].lower()
+            ]
+        return result
+    except Exception as e:
+        _handle_error(e)
+
+
+@mcp.tool(
+    description=(
+        "Get real-time gym and fitness facility occupancy on GCU campus. "
+        "Returns location names, current people count, capacity, percentage full, "
+        "busy level (low/medium/high/closed), and facility grouping with summaries. "
+        "No authentication required. "
+        "Optionally filter by facility name (case-insensitive substring match)."
+    ),
+    tags={"campus"},
+)
+def gym_status(facility_name: str | None = None) -> dict:
+    """Get real-time gym facility occupancy."""
+    try:
+        facilities = fetch_gym_status()
+        result = clean_gym_status(facilities)
+        if facility_name:
+            needle = facility_name.lower()
+            result["facilities"] = [
+                f for f in result["facilities"]
+                if f.get("facility") and needle in f["facility"].lower()
+            ]
+            result["summary"] = [
+                s for s in result["summary"]
+                if s.get("facility") and needle in s["facility"].lower()
+            ]
+        return result
+    except Exception as e:
+        _handle_error(e)
 
 
 # ==================== Entry Point ====================
