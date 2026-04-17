@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HaloMCP Cookie Pusher — Settings</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; font-size: 14px; max-width: 720px; margin: 32px auto; padding: 0 20px; color: #222; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin-top: 28px; }
+    p.muted { color: #666; margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { background: #f7f7f7; font-weight: 600; }
+    td code { font-size: 12px; word-break: break-all; }
+    input[type=text], input[type=url] { width: 100%; padding: 6px 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+    label { display: block; font-size: 12px; color: #555; margin-bottom: 3px; font-weight: 600; }
+    button { padding: 6px 14px; cursor: pointer; border: 1px solid #ccc; background: #f8f8f8; border-radius: 4px; font-size: 13px; }
+    button:hover { background: #eee; }
+    button.primary { background: #06c; color: white; border-color: #06c; }
+    button.primary:hover { background: #05a; }
+    button.danger { background: none; border: none; color: #c00; padding: 2px 6px; }
+    button.danger:hover { text-decoration: underline; }
+    form { display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end; }
+    .security-note { background: #fff3cd; border-left: 4px solid #f0c040; padding: 12px 14px; border-radius: 4px; font-size: 13px; margin-top: 28px; line-height: 1.5; }
+    .security-note code { background: #f5f0d0; padding: 1px 4px; border-radius: 3px; }
+    .empty { color: #777; font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>HaloMCP Cookie Pusher</h1>
+  <p class="muted">Each destination is a HaloMCP server that will receive your Halo session cookies. Enabled destinations appear in the popup.</p>
+
+  <h2>Destinations</h2>
+  <table>
+    <thead><tr><th style="width:25%">Name</th><th>URL</th><th style="width:12%">Enabled</th><th style="width:12%"></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <h2>Add destination</h2>
+  <form id="add-form">
+    <div>
+      <label for="new-name">Name</label>
+      <input type="text" id="new-name" required placeholder="VPS" autocomplete="off">
+    </div>
+    <div>
+      <label for="new-url">MCP URL</label>
+      <input type="url" id="new-url" required placeholder="https://my-vps.example.com/mcp" autocomplete="off">
+    </div>
+    <button type="submit" class="primary">Add</button>
+  </form>
+
+  <div class="security-note">
+    <strong>Security note:</strong>
+    Session cookies grant full access to your Halo account until they expire (~30 days).
+    Only add destinations you trust. The HaloMCP <code>setup_from_cookies</code> tool has
+    no authentication — if you expose your HaloMCP server publicly (e.g. on a VPS),
+    put it behind HTTPS + an auth-enforcing reverse proxy or an IP allowlist.
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>
