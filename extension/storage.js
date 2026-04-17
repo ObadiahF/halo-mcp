@@ -3,7 +3,7 @@
 // HaloMCP docker port on localhost.
 
 const DEFAULT_DESTINATIONS = [
-  { id: "local", name: "Local", url: "http://localhost:8000/mcp", enabled: true },
+  { id: "local", name: "Local", url: "http://localhost:8000/mcp", accessToken: "", enabled: true },
 ];
 
 export async function getDestinations() {
@@ -12,17 +12,18 @@ export async function getDestinations() {
     await chrome.storage.sync.set({ destinations: DEFAULT_DESTINATIONS });
     return DEFAULT_DESTINATIONS;
   }
-  return destinations;
+  // Migration: old records may lack accessToken; fill with empty string.
+  return destinations.map(d => ({ accessToken: "", ...d }));
 }
 
 export async function saveDestinations(destinations) {
   await chrome.storage.sync.set({ destinations });
 }
 
-export async function addDestination(name, url) {
+export async function addDestination({ name, url, accessToken }) {
   const destinations = await getDestinations();
   const id = `dest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  destinations.push({ id, name, url, enabled: true });
+  destinations.push({ id, name, url, accessToken: accessToken || "", enabled: true });
   await saveDestinations(destinations);
 
   // Request host permission for the new origin so fetch() isn't blocked by CORS.
@@ -45,6 +46,15 @@ export async function setDestinationEnabled(id, enabled) {
   const d = destinations.find(x => x.id === id);
   if (d) {
     d.enabled = enabled;
+    await saveDestinations(destinations);
+  }
+}
+
+export async function setDestinationAccessToken(id, accessToken) {
+  const destinations = await getDestinations();
+  const d = destinations.find(x => x.id === id);
+  if (d) {
+    d.accessToken = accessToken;
     await saveDestinations(destinations);
   }
 }

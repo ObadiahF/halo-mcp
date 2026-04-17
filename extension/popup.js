@@ -74,7 +74,7 @@ async function push() {
       const statusEl = document.getElementById(`status-${d.id}`);
       setStatus(statusEl, "pushing…", "status-pending");
       try {
-        const result = await pushCookieHeader(d.url, cookieHeader);
+        const result = await pushCookieHeader(d, cookieHeader);
         const method = result?.authMethod || "saved";
         const exp = result?.tokenExpiration || result?.expires || "";
         setStatus(statusEl, `✓ ${method}${exp ? " — " + exp : ""}`, "status-ok");

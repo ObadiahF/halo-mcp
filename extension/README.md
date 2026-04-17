@@ -36,9 +36,11 @@ Session cookies grant full access to your Halo account until they expire
 (~30 days). Treat them like a password.
 
 - Only add destinations you trust.
-- The HaloMCP `setup_from_cookies` tool has no authentication. If you
-  expose your HaloMCP server beyond localhost, put it behind HTTPS plus a
-  reverse proxy with auth (HTTP basic, OAuth, mTLS) or an IP allowlist.
+- The HaloMCP server enforces bearer-token auth on its `/mcp` endpoint.
+  On first startup it auto-generates a token and prints it to the server
+  log — paste that into the **Access token** field for the matching
+  destination. Pushes without a valid token return HTTP 401.
+- For public exposure, still front the server with HTTPS.
 - The extension never sends cookies to any server you haven't explicitly
   added to the destination list.
 

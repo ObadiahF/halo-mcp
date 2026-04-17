@@ -556,9 +556,27 @@ def main():
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     host = os.environ.get("MCP_HOST", "127.0.0.1")
     if transport == "stdio":
+        # Local stdio transport: no network surface, no auth needed.
         mcp.run(transport=transport)
-    else:
-        mcp.run(transport=transport, host=host)
+        return
+
+    # HTTP transport: enforce bearer-token auth on /mcp*.
+    from mcp_auth import get_or_create_access_token, BearerAuthMiddleware
+    import uvicorn
+
+    port = int(os.environ.get("MCP_PORT", "8000"))
+    token = get_or_create_access_token()
+
+    print("=" * 64)
+    print("[Halo MCP] Access token (required for remote clients):")
+    print(f"    {token}")
+    print("[Halo MCP] Clients must send 'Authorization: Bearer <token>'")
+    print("[Halo MCP] To rotate: delete mcpAccessToken from config.json and restart")
+    print("=" * 64)
+
+    app = mcp.http_app()
+    app.add_middleware(BearerAuthMiddleware, token=token)
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
