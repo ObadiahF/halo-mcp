@@ -560,22 +560,28 @@ def main():
         mcp.run(transport=transport)
         return
 
-    # HTTP transport: enforce bearer-token auth on /mcp*.
-    from mcp_auth import get_or_create_access_token, BearerAuthMiddleware
+    # HTTP transport: opt-in bearer-token auth on /mcp*.
+    from mcp_auth import get_configured_access_token, BearerAuthMiddleware
     import uvicorn
 
     port = int(os.environ.get("MCP_PORT", "8000"))
-    token = get_or_create_access_token()
-
-    print("=" * 64)
-    print("[Halo MCP] Access token (required for remote clients):")
-    print(f"    {token}")
-    print("[Halo MCP] Clients must send 'Authorization: Bearer <token>'")
-    print("[Halo MCP] To rotate: delete mcpAccessToken from config.json and restart")
-    print("=" * 64)
+    token = get_configured_access_token()
 
     app = mcp.http_app()
-    app.add_middleware(BearerAuthMiddleware, token=token)
+    if token:
+        print("=" * 64)
+        print("[Halo MCP] Bearer-token auth ENABLED on /mcp")
+        print(f"    token: {token}")
+        print("[Halo MCP] Clients must send 'Authorization: Bearer <token>'")
+        print("=" * 64)
+        app.add_middleware(BearerAuthMiddleware, token=token)
+    else:
+        print("[Halo MCP] Auth DISABLED — no mcpAccessToken in config.json or env.")
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            print("[Halo MCP] WARNING: bound to {host} without auth — anyone who can"
+                  " reach port {port} can use this server. Set mcpAccessToken in"
+                  " config.json or HALO_MCP_ACCESS_TOKEN env var to enable auth."
+                  .format(host=host, port=port))
     uvicorn.run(app, host=host, port=port)
 
 

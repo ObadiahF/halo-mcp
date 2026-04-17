@@ -1,5 +1,5 @@
 import { pushCookieHeader } from "./mcp_client.js";
-import { getDestinations } from "./storage.js";
+import { getDestinations, setDestinationAccessToken } from "./storage.js";
 
 const HALO_DOMAIN = "halo.gcu.edu";
 const REQUIRED_COOKIES = [
@@ -44,16 +44,23 @@ async function render() {
   for (const d of destinations) {
     const li = document.createElement("li");
     li.innerHTML = `
-      <label class="dest-row">
+      <div class="dest-row">
         <input type="checkbox" class="dest-check" data-id="${escapeHtml(d.id)}" ${d.enabled ? "checked" : ""}>
         <div style="flex:1">
           <div class="dest-name">${escapeHtml(d.name)}</div>
           <div class="dest-url">${escapeHtml(d.url)}</div>
+          <input type="text" class="dest-token" data-id="${escapeHtml(d.id)}"
+                 value="${escapeHtml(d.accessToken || "")}"
+                 placeholder="access token (leave blank if server has no auth)"
+                 autocomplete="off">
           <div class="dest-status" id="status-${escapeHtml(d.id)}"></div>
         </div>
-      </label>`;
+      </div>`;
     list.appendChild(li);
   }
+  list.querySelectorAll(".dest-token").forEach(el => {
+    el.addEventListener("change", () => setDestinationAccessToken(el.dataset.id, el.value.trim()));
+  });
 }
 
 async function push() {
@@ -65,7 +72,13 @@ async function push() {
     const checkedIds = new Set(
       [...document.querySelectorAll(".dest-check:checked")].map(el => el.dataset.id)
     );
-    const targets = destinations.filter(d => checkedIds.has(d.id));
+    // Pick up unsaved token edits from the visible inputs.
+    const liveTokens = Object.fromEntries(
+      [...document.querySelectorAll(".dest-token")].map(el => [el.dataset.id, el.value.trim()])
+    );
+    const targets = destinations
+      .filter(d => checkedIds.has(d.id))
+      .map(d => ({ ...d, accessToken: liveTokens[d.id] ?? d.accessToken }));
     if (targets.length === 0) {
       alert("Select at least one destination to push to.");
       return;

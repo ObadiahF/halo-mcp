@@ -1,12 +1,10 @@
 """Bearer-token access control for the HaloMCP streamable-http server.
 
-Gate: any request under /mcp must send `Authorization: Bearer <token>`.
-Source of truth, in precedence order:
-  1. HALO_MCP_ACCESS_TOKEN env var
-  2. mcpAccessToken in config.json
-  3. Auto-generated (32 bytes URL-safe) and persisted to config.json
+Opt-in: if `HALO_MCP_ACCESS_TOKEN` env var or `mcpAccessToken` in config.json
+is set, any request under /mcp must send `Authorization: Bearer <token>`.
+Otherwise the server runs unauthenticated (fine for localhost use).
 
-Stdio transport is local-only and therefore unauthenticated.
+Stdio transport is local-only and therefore always unauthenticated.
 """
 import json
 import os
@@ -18,26 +16,18 @@ from starlette.responses import JSONResponse
 from config import _CONFIG_FILE
 
 
-def get_or_create_access_token() -> str:
-    """Return the MCP access token, generating one on first call if needed."""
+def get_configured_access_token() -> str | None:
+    """Return the configured MCP access token, or None if auth is disabled."""
     env_token = os.environ.get("HALO_MCP_ACCESS_TOKEN")
     if env_token:
         return env_token
-
-    data = {}
     if _CONFIG_FILE.exists():
         with open(_CONFIG_FILE) as f:
             data = json.load(f)
-
-    token = data.get("mcpAccessToken")
-    if token:
-        return token
-
-    token = secrets.token_urlsafe(32)
-    data["mcpAccessToken"] = token
-    with open(_CONFIG_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-    return token
+        token = data.get("mcpAccessToken")
+        if token:
+            return token
+    return None
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):

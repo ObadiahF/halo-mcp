@@ -36,11 +36,16 @@ Session cookies grant full access to your Halo account until they expire
 (~30 days). Treat them like a password.
 
 - Only add destinations you trust.
-- The HaloMCP server enforces bearer-token auth on its `/mcp` endpoint.
-  On first startup it auto-generates a token and prints it to the server
-  log — paste that into the **Access token** field for the matching
-  destination. Pushes without a valid token return HTTP 401.
-- For public exposure, still front the server with HTTPS.
+- The HaloMCP server supports **opt-in** bearer-token auth on its `/mcp`
+  endpoint. Leave `mcpAccessToken` unset in the server's config.json to
+  run unauthenticated (fine for localhost); set it to any value to require
+  `Authorization: Bearer <token>` on every request. For a public/VPS
+  deployment, setting it is strongly recommended.
+- When auth is enabled, paste the configured token into the destination's
+  **access token** field (either in the popup or in Settings). Leave blank
+  for unauthenticated servers.
+- For public exposure, front the server with HTTPS in addition to the
+  bearer token.
 - The extension never sends cookies to any server you haven't explicitly
   added to the destination list.
 
