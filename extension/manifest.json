@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "HaloMCP Cookie Pusher",
+  "version": "0.1.0",
+  "description": "One-click push of Halo session cookies to one or more HaloMCP servers.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": [
+    "https://halo.gcu.edu/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": ["*://*/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Push Halo cookies"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

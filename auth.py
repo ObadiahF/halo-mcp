@@ -69,6 +69,73 @@ def _save_tokens(auth_token: str, context_token: str) -> None:
         json.dump(data, f, indent=2)
 
 
+def _parse_cookie_header(cookie_header: str) -> dict[str, str]:
+    """Parse a raw `Cookie: k=v; k=v` header into a dict of cookie names to values."""
+    result = {}
+    for part in cookie_header.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, _, v = part.partition("=")
+            result[k.strip()] = v.strip()
+    return result
+
+
+def setup_from_browser_cookies(cookie_header: str) -> dict:
+    """
+    Adopt a browser's open_id session by saving its cookies directly.
+
+    Unlike setup_session (which calls /api/auth/callback/tokens and creates a
+    local_auth session that CANNOT be refreshed), this preserves the browser's
+    OIDC session — the only session type that supports real token refresh.
+
+    How to get the cookie header:
+      1. Log into https://halo.gcu.edu in a browser
+      2. DevTools → Network tab → click any request to halo.gcu.edu
+      3. In Request Headers, copy the full value of the `Cookie:` header
+      4. Pass that string to this function
+    """
+    all_cookies = _parse_cookie_header(cookie_header)
+    session_cookies = {k: v for k, v in all_cookies.items() if k in SESSION_COOKIE_NAMES}
+
+    missing = [k for k in SESSION_COOKIE_NAMES if k not in session_cookies]
+    if "__Secure-next-auth.session-token" in missing:
+        raise RuntimeError(
+            f"Required cookie '__Secure-next-auth.session-token' not found. "
+            f"Missing cookies: {missing}"
+        )
+
+    cookie_str = "; ".join(f"{k}={v}" for k, v in session_cookies.items())
+    with httpx.Client(timeout=30.0) as client:
+        r = client.get(f"{HALO_BASE}/api/auth/session", headers={"Cookie": cookie_str})
+        r.raise_for_status()
+        session = r.json()
+
+    if not session.get("userId"):
+        raise RuntimeError("Cookies rejected by Halo. Log in again and copy fresh cookies.")
+
+    auth_method = session.get("authMethod")
+    _save_session_cookies(session_cookies)
+    if session.get("authToken") and session.get("contextToken"):
+        _save_tokens(session["authToken"], session["contextToken"])
+
+    warning = None
+    if auth_method != "open_id":
+        warning = (
+            f"Session is '{auth_method}', not 'open_id'. Token refresh requires an "
+            "open_id session (created by real SSO login). If refresh fails later, "
+            "log out of halo.gcu.edu, log back in, and re-copy the cookie header."
+        )
+
+    return {
+        "status": "saved",
+        "authMethod": auth_method,
+        "expires": session.get("expires"),
+        "tokenExpiration": session.get("tokenExpiration"),
+        "username": session.get("username"),
+        "warning": warning,
+    }
+
+
 def create_session(auth_token: str, context_token: str) -> dict:
     """
     Create a next-auth session from existing tokens.
@@ -142,12 +209,30 @@ def refresh_tokens() -> dict:
             "  2. Call the 'setup_session' tool to create a long-lived session"
         )
 
+    # Why POST instead of GET: next-auth's GET /api/auth/session just re-reads
+    # the current session and re-encrypts the same JWTs with a new IV (AES-GCM).
+    # The resulting token string looks different but the underlying JWT has the
+    # same `exp`. Only POST with shouldRefreshToken=true triggers a real refresh
+    # through the SSO provider that advances tokenExpiration.
+    csrf_cookie = session_cookies.get("__Host-next-auth.csrf-token", "")
+    csrf_token = csrf_cookie.split("%7C")[0].split("|")[0]
+    if not csrf_token:
+        raise RuntimeError(
+            "No CSRF token in stored cookies. Run setup_session to re-establish session."
+        )
+
     with httpx.Client(timeout=30.0) as client:
-        # Set all session cookies via header
         cookie_str = "; ".join(f"{k}={v}" for k, v in session_cookies.items())
-        session_resp = client.get(
+        session_resp = client.post(
             f"{HALO_BASE}/api/auth/session",
-            headers={"Cookie": cookie_str},
+            headers={
+                "Cookie": cookie_str,
+                "Content-Type": "application/json",
+            },
+            json={
+                "csrfToken": csrf_token,
+                "data": {"shouldRefreshToken": "true"},
+            },
         )
         session_resp.raise_for_status()
         session = session_resp.json()
@@ -182,6 +267,7 @@ def refresh_tokens() -> dict:
     return {
         "status": "refreshed",
         "expires": session.get("expires"),
+        "tokenExpiration": session.get("tokenExpiration"),
         "authToken": auth_token,
         "contextToken": context_token,
         "username": session.get("username"),

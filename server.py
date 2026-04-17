@@ -16,19 +16,31 @@ from request import HaloRequest, HaloAPIError, HaloTokenExpiredError
 from cleaners import clean_notifications
 from submission import upload_assignment_file_flow, submit_assignment_flow
 from config import reload_config as _reload_config
-from auth import setup_session as _setup_session, refresh_tokens as _refresh_tokens
+from auth import (
+    setup_session as _setup_session,
+    refresh_tokens as _refresh_tokens,
+    setup_from_browser_cookies as _setup_from_browser_cookies,
+)
 import queries
 import class_cache
 
 @asynccontextmanager
 async def lifespan(server):
-    """Set up session on startup for automatic token refresh."""
+    """Validate or bootstrap session on startup. Preserves existing cookies
+    so a refreshable open_id session (set up via setup_from_cookies) is not
+    clobbered by the non-refreshable local_auth session that setup_session creates."""
+    from auth import _get_session_cookies_from_config
     try:
-        result = _setup_session()
-        print(f"[Halo MCP] Session ready — expires {result.get('expires', 'unknown')}")
+        if _get_session_cookies_from_config():
+            result = _refresh_tokens()
+            print(f"[Halo MCP] Existing session validated — tokenExpiration {result.get('tokenExpiration', 'unknown')}")
+        else:
+            result = _setup_session()
+            print(f"[Halo MCP] Session bootstrapped from tokens — expires {result.get('expires', 'unknown')}")
+            print("[Halo MCP] Note: this creates a local_auth session that CANNOT be refreshed.")
+            print("[Halo MCP] For automatic refresh, run 'setup_from_cookies' with a browser Cookie header.")
     except Exception as e:
         print(f"[Halo MCP] Session setup skipped: {e}")
-        print("[Halo MCP] Call the 'setup_session' tool manually after providing valid tokens.")
     yield {}
 
 
@@ -515,6 +527,27 @@ def refresh() -> dict:
         return {"status": "error", "message": str(e)}
 
 
+@mcp.tool(
+    description=(
+        "RECOMMENDED: set up refreshable session by adopting browser cookies. "
+        "Paste the full 'Cookie:' request header from a logged-in Halo browser session "
+        "(DevTools → Network → any request to halo.gcu.edu → Request Headers → Cookie). "
+        "Unlike setup_session (which creates a non-refreshable local_auth session), "
+        "this preserves the open_id session from real SSO login — the only kind that "
+        "supports true token refresh via shouldRefreshToken."
+    ),
+    tags={"auth"},
+)
+def setup_from_cookies(cookie_header: str) -> dict:
+    """Save browser cookies directly to preserve the refreshable open_id session."""
+    try:
+        result = _setup_from_browser_cookies(cookie_header)
+        _reload_config()
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # ==================== Entry Point ====================
 
 
@@ -523,9 +556,33 @@ def main():
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     host = os.environ.get("MCP_HOST", "127.0.0.1")
     if transport == "stdio":
+        # Local stdio transport: no network surface, no auth needed.
         mcp.run(transport=transport)
+        return
+
+    # HTTP transport: opt-in bearer-token auth on /mcp*.
+    from mcp_auth import get_configured_access_token, BearerAuthMiddleware
+    import uvicorn
+
+    port = int(os.environ.get("MCP_PORT", "8000"))
+    token = get_configured_access_token()
+
+    app = mcp.http_app()
+    if token:
+        print("=" * 64)
+        print("[Halo MCP] Bearer-token auth ENABLED on /mcp")
+        print(f"    token: {token}")
+        print("[Halo MCP] Clients must send 'Authorization: Bearer <token>'")
+        print("=" * 64)
+        app.add_middleware(BearerAuthMiddleware, token=token)
     else:
-        mcp.run(transport=transport, host=host)
+        print("[Halo MCP] Auth DISABLED — no mcpAccessToken in config.json or env.")
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            print("[Halo MCP] WARNING: bound to {host} without auth — anyone who can"
+                  " reach port {port} can use this server. Set mcpAccessToken in"
+                  " config.json or HALO_MCP_ACCESS_TOKEN env var to enable auth."
+                  .format(host=host, port=port))
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
